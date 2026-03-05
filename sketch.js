@@ -3,6 +3,15 @@
 //  A -> B only, better road floor, standout buildings + labels
 // ================================================================
 
+// Import manic state modules
+import {
+  ManicState,
+  MANIC_CHECKPOINT_ZONE,
+  MANIC_SPEED_MULTIPLIER,
+  ARROW_POOL,
+} from "./manicState.js";
+import { drawManicOverlays, drawRoadArrow } from "./manicOverlays.js";
+
 // ── Constants ────────────────────────────────────────────────
 const ROWS = 40,
   COLS = 40;
@@ -15,8 +24,7 @@ const FOV = Math.PI / 3;
 const MAX_D = 24;
 
 // ── Canvas setup ─────────────────────────────────────────────
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d", { alpha: false });
+let canvas, ctx;
 
 let W = 0,
   H = 0;
@@ -137,45 +145,6 @@ const NPC_INIT = [
 
 // ── Static sprites ───────────────────────────────────────────
 let SPRITES = [];
-
-// ── Arrow pool — one shown at a time in manic mode ────────────
-const ARROW_POOL = [
-  // Early map — near start, mislead immediately
-  { x: 6.5, y: 4.5, dir: -Math.PI / 2 }, // row3  near GA → north (back)
-  { x: 4.5, y: 7.0, dir: Math.PI / 2 }, // col3  south   → south (away from hosp)
-  { x: 7.0, y: 3.5, dir: Math.PI }, // row3  mid     → west (back)
-  // Mid-map horizontal roads
-  { x: 11.0, y: 10.5, dir: Math.PI }, // row10/col10   → west
-  { x: 14.5, y: 11.5, dir: -Math.PI / 2 }, // row10 mid     → north
-  { x: 6.5, y: 10.5, dir: Math.PI }, // row10 early   → west
-  { x: 19.0, y: 10.5, dir: 0 }, // row10/col18   → east (back)
-  { x: 22.0, y: 11.5, dir: Math.PI / 2 }, // row10 far mid → south (wrong)
-  // Mid-map vertical roads
-  { x: 10.5, y: 7.0, dir: -Math.PI / 2 }, // col10 north   → north
-  { x: 10.5, y: 14.5, dir: 0 }, // col10 mid     → east (wrong)
-  { x: 10.5, y: 22.0, dir: -Math.PI / 2 }, // col10 south   → north
-  { x: 18.5, y: 7.0, dir: Math.PI }, // col18 north   → west
-  { x: 18.5, y: 14.5, dir: Math.PI / 2 }, // col18 mid     → south (overshoots)
-  // Row 18 horizontal
-  { x: 7.0, y: 18.5, dir: Math.PI }, // row18 early   → west
-  { x: 14.5, y: 18.5, dir: -Math.PI / 2 }, // row18 mid     → north
-  { x: 17.0, y: 18.5, dir: Math.PI }, // row18/col18   → west
-  { x: 22.0, y: 18.5, dir: Math.PI / 2 }, // row18 far     → south
-  // Approaching hospital quadrant — most critical misleads
-  { x: 18.5, y: 22.0, dir: Math.PI / 2 }, // col18 south   → south (overshoots)
-  { x: 18.5, y: 25.0, dir: -Math.PI / 2 }, // row26/col18   → north
-  { x: 22.0, y: 26.5, dir: -Math.PI / 2 }, // row26 mid     → north
-  { x: 25.0, y: 26.5, dir: Math.PI }, // row26/col26   → west
-  { x: 26.5, y: 22.0, dir: -Math.PI / 2 }, // col26 north   → north
-  { x: 26.5, y: 29.0, dir: -Math.PI / 2 }, // col26 mid     → north
-  { x: 29.0, y: 26.5, dir: 0 }, // row26 east    → east (past hosp)
-  // Near hospital — most aggressive misleads
-  { x: 27.0, y: 34.5, dir: 0 }, // row34/col26   → east (past hosp)
-  { x: 30.5, y: 35.0, dir: Math.PI / 2 }, // row34 mid     → south
-  { x: 34.5, y: 22.0, dir: Math.PI }, // col34 mid     → west
-  { x: 34.5, y: 29.0, dir: Math.PI / 2 }, // col34 south   → south
-  { x: 30.5, y: 27.0, dir: -Math.PI / 2 }, // col34 inner   → north
-];
 
 function buildScene() {
   NPCS = NPC_INIT.map((n) => ({ ...n }));
@@ -359,125 +328,25 @@ let gameState = "warning";
 let tripPhase = 0; // 0=going to hospital, 1=returning to start
 let pulse = 0;
 const KEYS = {};
+let initialDistanceToGoal = 0;
 
 // ── Accessibility Settings ───────────────────────────────────
 let reducedEffectsMode = false;
 let skipManicEpisode = false;
 
-// ── Manic Episode State ──────────────────────────────────────
-let manicMode = false;
-const MANIC_CHECKPOINT_ZONE = { x: 18.5, y: 18.5, radius: 2.5 };
-const MANIC_SPEED_MULTIPLIER = 5.0;
-let hasPassedCheckpoint = false;
-let initialDistanceToGoal = 0;
-let checkpointWarningShown = false;
-let shakeOffsetX = 0;
-let shakeOffsetY = 0;
-
-// Enhanced manic episode variables
-let manicIntensity = 0;
-let manicStartTime = 0;
-const MANIC_RAMP_DURATION = 30; // reaches full intensity in 30 seconds
-let screenRotation = 0;
-let colorShift = 0;
-let tunnelVisionAmount = 0;
-let controlInversion = 0;
-let controlDrift = 0;
-let hudGlitchAmount = 0;
-let phantomSprites = [];
-
-// ── NEW: Authentic mania effect state ────────────────────────
-// Racing thoughts system
-const RACING_THOUGHTS = [
-  "you're SO close",
-  "you see EVERYTHING clearly",
-  "faster — it makes sense now",
-  "this is IMPORTANT",
-  "you've never driven better",
-  "why is everyone so slow",
-  "you understand the pattern",
-  "this feels RIGHT",
-  "incredible — keep going",
-  "you're UNSTOPPABLE",
-  "everything is connected",
-  "you've figured it out",
-  "no one else gets it like you do",
-  "this is the best you've ever felt",
-  "almost there — you KNOW the way",
-  "your instincts are perfect",
-  "trust yourself",
-  "the signs are obvious",
-  "you don't need the map",
-  "you can feel the destination",
-];
-let activeThoughts = []; // { text, x, y, alpha, life, maxLife, size, vx, vy }
-let thoughtSpawnTimer = 0;
-let activeArrowIdx = -1;
-let arrowTimer = 0; // starts at 0 so first arrow appears immediately
-let arrowFadeAlpha = 0;
-let lastArrowIdx = -1;
-
-// Grandiosity HUD messages
-const GRANDIOSITY_MESSAGES = [
-  "PERFECT DRIVING",
-  "YOU SEE IT CLEARLY",
-  "FLAWLESS INSTINCTS",
-  "INCREDIBLE SPEED",
-  "YOU CAN'T BE STOPPED",
-  "EVERYTHING MAKES SENSE",
-  "TRUST YOUR JUDGMENT",
-  "BRILLIANT ROUTE CHOSEN",
-];
-let currentGrandiosityMsg = "";
-let grandiosityTimer = 0;
-let grandiosityAlpha = 0;
-
-// World bloom / saturation state
-let worldBloom = 0; // 0–1, makes world feel electric/beautiful
-let skyBrightness = 0; // sky gets more vivid and golden
-
-// Overconfidence compass drift — compass gradually points slightly wrong
-let compassDrift = 0; // radians of drift, builds slowly
-
-// Subtle euphoric shimmer on edges of screen (NOT horror vignette)
-let shimmerAmount = 0;
+// ── Manic Episode State (using module) ──────────────────────
+const manicState = new ManicState();
 
 function resetGame() {
   // Start in centre of right lane (lower tile of the eastbound road)
   // Roads are 2 tiles wide; row 3+4, col 3+4. Right lane east = y=4.5.
   P = { x: 5.5, y: 4.5, a: 0, spd: 0 };
   pulse = 0;
-  manicMode = false;
-  hasPassedCheckpoint = false;
   tripPhase = 0;
-  checkpointWarningShown = false;
   initialDistanceToGoal = Math.hypot(GB.x - GA.x, GB.y - GA.y);
 
-  // Reset enhanced manic variables
-  manicIntensity = 0;
-  manicStartTime = 0;
-  screenRotation = 0;
-  colorShift = 0;
-  tunnelVisionAmount = 0;
-  controlInversion = 0;
-  controlDrift = 0;
-  hudGlitchAmount = 0;
-  phantomSprites = [];
-
-  // Reset new authentic mania state
-  activeThoughts = [];
-  thoughtSpawnTimer = 0;
-  activeArrowIdx = -1;
-  arrowTimer = 0;
-  arrowFadeAlpha = 0;
-  lastArrowIdx = -1;
-  currentGrandiosityMsg = "";
-  grandiosityTimer = 0;
-  grandiosityAlpha = 0;
-  worldBloom = 0;
-  skyBrightness = 0;
-  compassDrift = 0;
-  shimmerAmount = 0;
+  // Reset manic state using module
+  manicState.reset();
 
   buildScene();
 }
@@ -495,33 +364,6 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keyup", (e) => {
   KEYS[e.code] = false;
 });
-
-// ── Buttons ──────────────────────────────────────────────────
-document.getElementById("btn-acknowledge").onclick = () => {
-  document.getElementById("screen-warning").style.display = "none";
-  document.getElementById("screen-intro").style.display = "flex";
-  gameState = "intro";
-};
-document.getElementById("btn-settings").onclick = () => {
-  document.getElementById("screen-warning").style.display = "none";
-  document.getElementById("screen-settings").style.display = "flex";
-};
-document.getElementById("btn-back-to-warning").onclick = () => {
-  reducedEffectsMode = document.getElementById(
-    "setting-reduced-effects",
-  ).checked;
-  skipManicEpisode = document.getElementById("setting-skip-manic").checked;
-  document.getElementById("screen-settings").style.display = "none";
-  document.getElementById("screen-warning").style.display = "flex";
-};
-document.getElementById("btn-start").onclick = () => {
-  resetGame();
-  showGame();
-};
-document.getElementById("btn-again").onclick = () => {
-  document.getElementById("screen-win").style.display = "none";
-  document.getElementById("screen-intro").style.display = "flex";
-};
 
 function showGame() {
   document.getElementById("screen-intro").style.display = "none";
@@ -585,125 +427,16 @@ function loop(t) {
   if (gameState !== "playing") return;
   pulse += dt;
 
-  // Update manic intensity
-  if (manicMode && !skipManicEpisode) {
-    if (manicStartTime === 0) manicStartTime = pulse;
-    let elapsed = pulse - manicStartTime;
-    // Linear ramp — steady, gradual build from the moment it triggers
-    let rawIntensity = Math.min(1, elapsed / MANIC_RAMP_DURATION);
-    manicIntensity = reducedEffectsMode
-      ? Math.min(0.5, rawIntensity)
-      : rawIntensity;
-
-    // ── AUTHENTIC MANIA: beautiful/electric world ────────────
-    // World feels MORE vivid, not scarier
-    worldBloom = manicIntensity * 0.7;
-    skyBrightness = manicIntensity * 0.5;
-    shimmerAmount = manicIntensity;
-
-    // Overconfidence: compass drifts subtly off — player won't notice til they're lost
-    compassDrift = Math.sin(pulse * 0.08) * manicIntensity * 0.45;
-
-    // Very subtle screen rotation — imperceptible at first, feels like energy
-    screenRotation = Math.sin(pulse * 1.2) * manicIntensity * 0.025;
-
-    // Only minimal shake at HIGH intensity (not horror, just restless energy)
-    if (manicIntensity > 0.7) {
-      let shakeIntensity = 4.0 * ((manicIntensity - 0.7) / 0.3);
-      shakeOffsetX = (Math.random() - 0.5) * shakeIntensity;
-      shakeOffsetY = (Math.random() - 0.5) * shakeIntensity;
-    } else {
-      shakeOffsetX = 0;
-      shakeOffsetY = 0;
-    }
-
-    // Racing thoughts spawn faster as intensity grows
-    thoughtSpawnTimer -= dt;
-    let spawnInterval = Math.max(0.4, 3.0 - manicIntensity * 2.6);
-    if (thoughtSpawnTimer <= 0) {
-      thoughtSpawnTimer = spawnInterval;
-      spawnRacingThought();
-    }
-
-    // ── One glowing arrow at a time ───────────────────────────
-    // Arrows only start appearing once intensity is noticeable
-    if (manicIntensity > 0.1) {
-      arrowTimer -= dt;
-      if (arrowTimer <= 0) {
-        // Prefer arrows within 12 tiles of player so they're always visible & tempting
-        let nearby = ARROW_POOL.map((a, i) => ({
-          i,
-          d: Math.hypot(a.x - P.x, a.y - P.y),
-        }))
-          .filter((a) => a.i !== lastArrowIdx && a.d < 16 && a.d > 1.5)
-          .sort((a, b) => a.d - b.d);
-        // Pick from the 5 closest so it's not always the nearest
-        let pool2 = nearby.slice(0, 5);
-        if (pool2.length === 0)
-          pool2 = ARROW_POOL.map((_, i) => ({ i })).filter(
-            (a) => a.i !== lastArrowIdx,
-          );
-        let pick = pool2[Math.floor(Math.random() * pool2.length)];
-        lastArrowIdx = activeArrowIdx;
-        activeArrowIdx = pick.i;
-        // Appear for 3-6s, shorter at high intensity
-        arrowTimer = Math.max(1.8, 5 - manicIntensity * 3.5);
-        arrowFadeAlpha = 0;
-      }
-      // Fade in over 0.5s, fade out in last 0.5s
-      let duration = Math.max(1.8, 5 - manicIntensity * 3.5);
-      let elapsed = duration - arrowTimer;
-      arrowFadeAlpha = Math.min(1, Math.min(elapsed / 0.5, arrowTimer / 0.5));
-    } else {
-      activeArrowIdx = -1;
-      arrowFadeAlpha = 0;
-    }
-
-    // Grandiosity messages cycle
-    grandiosityTimer -= dt;
-    if (grandiosityTimer <= 0) {
-      grandiosityTimer = Math.max(1.5, 4.0 - manicIntensity * 2.5);
-      currentGrandiosityMsg =
-        GRANDIOSITY_MESSAGES[
-          Math.floor(Math.random() * GRANDIOSITY_MESSAGES.length)
-        ];
-      grandiosityAlpha = 0.0;
-    }
-    // Fade in then out
-    grandiosityAlpha = Math.min(1, grandiosityAlpha + dt * 3);
-
-    // Legacy vars (kept for compatibility, toned down)
-    colorShift = manicIntensity * 0.15; // much gentler
-    tunnelVisionAmount = 0; // removed — not authentic to mania
-    controlInversion = 0; // removed — too punishing, not authentic
-    controlDrift = manicIntensity * 0.08; // very subtle drift
-    hudGlitchAmount = manicIntensity * 0.3;
-
-    // Spawn phantom sprites at high intensity
-    if (manicIntensity > 0.6 && Math.random() < 0.008) {
-      spawnPhantomSprite();
-    }
-  } else if (manicMode && skipManicEpisode) {
-    manicIntensity = 0;
-    shakeOffsetX = 0;
-    shakeOffsetY = 0;
-  } else {
-    shakeOffsetX = 0;
-    shakeOffsetY = 0;
-  }
-
-  // Update racing thoughts
-  activeThoughts.forEach((th) => {
-    th.life -= dt;
-    th.x += th.vx * dt;
-    th.y += th.vy * dt;
-    // Fade in then out
-    let progress = 1 - th.life / th.maxLife;
-    if (progress < 0.15) th.alpha = progress / 0.15;
-    else if (progress > 0.7) th.alpha = 1 - (progress - 0.7) / 0.3;
-    else th.alpha = 1.0;
-  });
-  activeThoughts = activeThoughts.filter((th) => th.life > 0);
+  // Update manic state using module
+  manicState.update(
+    dt,
+    pulse,
+    P,
+    GB,
+    initialDistanceToGoal,
+    skipManicEpisode,
+    reducedEffectsMode,
+  );
 
   update(dt);
   render();
@@ -713,61 +446,16 @@ function loop(t) {
 }
 requestAnimationFrame(loop);
 
-// ── Spawn a racing thought ────────────────────────────────────
-function spawnRacingThought() {
-  let text =
-    RACING_THOUGHTS[Math.floor(Math.random() * RACING_THOUGHTS.length)];
-  // Thoughts appear in mid-screen area, drift upward
-  let x = W * (0.15 + Math.random() * 0.7);
-  let y = H * (0.3 + Math.random() * 0.45);
-  let size = Math.floor(11 + manicIntensity * 14 + Math.random() * 8);
-  let maxLife = 2.5 + Math.random() * 1.5;
-  activeThoughts.push({
-    text,
-    x,
-    y,
-    size,
-    vx: (Math.random() - 0.5) * 18,
-    vy: -12 - Math.random() * 20,
-    alpha: 0,
-    life: maxLife,
-    maxLife,
-  });
-}
-
 // ================================================================
 //  UPDATE
 // ================================================================
 function update(dt) {
-  // Check for manic episode checkpoint
-  if (!hasPassedCheckpoint) {
-    let currentDistToGoal = Math.hypot(P.x - GB.x, P.y - GB.y);
-    let progressPercent = 1 - currentDistToGoal / initialDistanceToGoal;
-    let distToCheckpoint = Math.hypot(
-      P.x - MANIC_CHECKPOINT_ZONE.x,
-      P.y - MANIC_CHECKPOINT_ZONE.y,
-    );
-    let shouldTrigger =
-      distToCheckpoint < MANIC_CHECKPOINT_ZONE.radius || progressPercent >= 0.4;
-    if (
-      !checkpointWarningShown &&
-      (distToCheckpoint < MANIC_CHECKPOINT_ZONE.radius + 5 ||
-        progressPercent >= 0.1)
-    ) {
-      checkpointWarningShown = true;
-    }
-    if (shouldTrigger) {
-      hasPassedCheckpoint = true;
-      manicMode = true;
-    }
-  }
-
-  let speedMult = manicMode ? MANIC_SPEED_MULTIPLIER : 1.0;
+  let speedMult = manicState.manicMode ? MANIC_SPEED_MULTIPLIER : 1.0;
   let maxSpeed = MOVE_SPEED * speedMult;
   let accelRate = ACCEL * speedMult;
 
-  if (manicMode && manicIntensity > 0.4) {
-    speedMult *= 1 + Math.sin(pulse * 3) * 0.15 * manicIntensity;
+  if (manicState.manicMode && manicState.manicIntensity > 0.4) {
+    speedMult *= 1 + Math.sin(pulse * 3) * 0.15 * manicState.manicIntensity;
     maxSpeed = MOVE_SPEED * speedMult;
   }
 
@@ -775,9 +463,9 @@ function update(dt) {
   if (KEYS["ArrowLeft"] || KEYS["KeyA"]) turnInput -= 1;
   if (KEYS["ArrowRight"] || KEYS["KeyD"]) turnInput += 1;
 
-  // Subtle control drift — feels like you're just going faster, not like controls are broken
-  if (manicMode && !skipManicEpisode) {
-    turnInput += (Math.random() - 0.5) * controlDrift;
+  // Subtle control drift
+  if (manicState.manicMode && !skipManicEpisode) {
+    turnInput += (Math.random() - 0.5) * manicState.controlDrift;
   }
 
   P.a += turnInput * TURN_SPEED * dt;
@@ -822,9 +510,15 @@ function update(dt) {
   P.y = Math.max(0.5, Math.min(ROWS - 0.5, P.y));
 
   NPCS.forEach((n) => {
-    let speedMult2 = manicMode ? 1 + manicIntensity * 4.0 : 1;
-    // In manic mode: occasional random direction flips (erratic driving)
-    if (manicMode && manicIntensity > 0.4 && Math.random() < 0.002) {
+    let speedMult2 = manicState.manicMode
+      ? 1 + manicState.manicIntensity * 4.0
+      : 1;
+    // In manic mode: occasional random direction flips
+    if (
+      manicState.manicMode &&
+      manicState.manicIntensity > 0.4 &&
+      Math.random() < 0.002
+    ) {
       if (n.vx !== 0) n.vx *= -1;
       if (n.vy !== 0) n.vy *= -1;
     }
@@ -843,30 +537,6 @@ function update(dt) {
     let dd = Math.hypot(P.x - GA.x, P.y - GA.y);
     if (dd < GOAL_R) showWin();
   }
-
-  phantomSprites = phantomSprites.filter((ps) => {
-    ps.life -= dt;
-    return ps.life > 0;
-  });
-}
-
-// ── Phantom Sprite Spawning ──────────────────────────────────
-function spawnPhantomSprite() {
-  let angle = Math.random() * Math.PI * 2;
-  let dist = 5 + Math.random() * 10;
-  let x = Math.max(1, Math.min(COLS - 1, P.x + Math.cos(angle) * dist));
-  let y = Math.max(1, Math.min(ROWS - 1, P.y + Math.sin(angle) * dist));
-  let types = [
-    { t: 9, dir: Math.random() * Math.PI * 2 },
-    { t: 4 },
-    { t: 5, r: 255, g: 100, b: 100 },
-  ];
-  let phantom = types[Math.floor(Math.random() * types.length)];
-  phantom.x = x;
-  phantom.y = y;
-  phantom.life = 2 + Math.random() * 3;
-  phantom.isPhantom = true;
-  phantomSprites.push(phantom);
 }
 
 // ================================================================
@@ -888,28 +558,11 @@ function render() {
     let g = (210 + t * 22) | 0;
     let b = (255 - t * 10) | 0;
 
-    if (manicMode && manicIntensity > 0) {
-      let mi = manicIntensity;
-      // Horizon warms first (t=1), warmth bleeds upward as intensity grows
-      let horizonBias = 0.4 + t * 0.6;
-      let warmth = mi * horizonBias;
-      r = Math.min(255, r + warmth * 115) | 0;
-      g = Math.min(255, g + warmth * 25) | 0;
-      b = Math.max(50, b - warmth * 150) | 0;
-      // Upper sky shifts to deep amber/violet at high intensity
-      if (mi > 0.5) {
-        let upper = (1 - t) * (mi - 0.5) * 2;
-        r = Math.min(255, r + upper * 45) | 0;
-        g = Math.max(70, g - upper * 35) | 0;
-        b = Math.max(30, b - upper * 20) | 0;
-      }
-      // Living shimmer — the sky feels alive
-      if (mi > 0.25) {
-        let shimmer = Math.sin(pulse * 2.2 + y * 0.04) * mi * 12;
-        r = Math.min(255, r + shimmer) | 0;
-        g = Math.min(255, g + shimmer * 0.4) | 0;
-      }
-    }
+    // Apply manic sky effects
+    let skyColors = manicState.applySkyEffects(r, g, b, t, pulse);
+    r = skyColors.r;
+    g = skyColors.g;
+    b = skyColors.b;
 
     let col = 0xff000000 | (b << 16) | (g << 8) | r;
     buf.fill(col, y * W2, y * W2 + W2);
@@ -929,8 +582,8 @@ function render() {
   let sunX = (W2 * 0.82) | 0,
     sunY = (hor * 0.26) | 0;
   let sunR = 22;
-  if (manicMode && manicIntensity > 0)
-    sunR = Math.min(55, 22 + manicIntensity * 40) | 0;
+  if (manicState.manicMode && manicState.manicIntensity > 0)
+    sunR = Math.min(55, 22 + manicState.manicIntensity * 40) | 0;
 
   for (let dy = -sunR; dy <= sunR; dy++)
     for (let dx = -sunR; dx <= sunR; dx++) {
@@ -939,17 +592,18 @@ function render() {
         let px2 = sunX + dx,
           py = sunY + dy;
         if (px2 >= 0 && px2 < W2 && py >= 0 && py < hor) {
-          if (manicMode && manicIntensity > 0) {
-            // Golden sun: ABGR — A=ff, B=low, G=mid, R=high
-            // Halo fades from white core to golden edge
-            let coreFrac = Math.sqrt(dist2) / sunR; // 0=centre, 1=edge
+          if (manicState.manicMode && manicState.manicIntensity > 0) {
+            let coreFrac = Math.sqrt(dist2) / sunR;
             let sr = 255;
             let sg = Math.max(160, 255 - coreFrac * 110) | 0;
             let sb =
-              Math.max(20, 200 - coreFrac * 180 - manicIntensity * 80) | 0;
+              Math.max(
+                20,
+                200 - coreFrac * 180 - manicState.manicIntensity * 80,
+              ) | 0;
             buf[py * W2 + px2] = 0xff000000 | (sb << 16) | (sg << 8) | sr;
           } else {
-            buf[py * W2 + px2] = 0xff80e8ff; // default cool sun
+            buf[py * W2 + px2] = 0xff80e8ff;
           }
         }
       }
@@ -1006,13 +660,11 @@ function render() {
         r = 48 + s;
         g = 120 + s;
         b = 70 + s;
-        // In manic mode: grass saturates — vivid emerald, almost luminous
-        if (manicMode && manicIntensity > 0) {
-          let mi = manicIntensity;
-          g = Math.min(210, g + mi * 75) | 0; // much richer green
-          r = Math.max(20, r - mi * 15) | 0; // cooler shadows
-          b = Math.max(40, b + mi * 20) | 0; // slight cool underglow
-        }
+        // Apply manic grass effects
+        let grassColors = manicState.applyGrassEffects(r, g, b);
+        r = grassColors.r;
+        g = grassColors.g;
+        b = grassColors.b;
       }
 
       const vdim = 0.85 + 0.15 * (1 - p / (H2 - hor));
@@ -1108,9 +760,9 @@ function render() {
     }
 
     // In manic mode: walls glow more warmly/vividly
-    if (manicMode && worldBloom > 0) {
+    if (manicState.manicMode && manicState.worldBloom > 0) {
       if (tt === 1) {
-        wg = Math.min(200, wg + worldBloom * 35) | 0;
+        wg = Math.min(200, wg + manicState.worldBloom * 35) | 0;
       }
     }
 
@@ -1162,7 +814,7 @@ function render() {
   NPCS.forEach((n) =>
     all.push({ x: n.x, y: n.y, t: 5, r: n.r, g: n.g, b: n.b }),
   );
-  phantomSprites.forEach((ps) => {
+  manicState.phantomSprites.forEach((ps) => {
     let alpha = Math.min(1, ps.life / 2);
     all.push({ ...ps, alpha });
   });
@@ -1177,11 +829,18 @@ function render() {
   ctx.putImageData(imgData, 0, 0);
 
   // Apply very subtle screen rotation (feels like energy, not horror)
-  if (manicMode && !skipManicEpisode && screenRotation !== 0) {
+  if (
+    manicState.manicMode &&
+    !skipManicEpisode &&
+    manicState.screenRotation !== 0
+  ) {
     ctx.save();
     ctx.translate(W / 2, H / 2);
-    ctx.rotate(screenRotation);
-    ctx.translate(-W / 2 + shakeOffsetX, -H / 2 + shakeOffsetY);
+    ctx.rotate(manicState.screenRotation);
+    ctx.translate(
+      -W / 2 + manicState.shakeOffsetX,
+      -H / 2 + manicState.shakeOffsetY,
+    );
   }
 
   for (const sp of all) {
@@ -1216,22 +875,27 @@ function render() {
     } else if (sp.t === 8) {
       drawSchool(sx, startY, spW, spH, sd, fog);
       drawLabelAbove(sx, startY, spW, sd, fog, sp.name || "SCHOOL");
-    } else if (sp.t === 9 && manicMode)
+    } else if (sp.t === 9 && manicState.manicMode)
       drawMisleadingSign(sx, startY, spW, spH, sd, fog, sp.dir, sp.label);
-    else if (sp.t === 10 && !hasPassedCheckpoint)
+    else if (sp.t === 10 && !manicState.hasPassedCheckpoint)
       drawCheckpointMarker(sx, startY, spW, spH, sd, fog);
     else if (sp.t === 5)
       drawCar3D(startX, startY, spW, spH, sd, fog, sp.r, sp.g, sp.b);
     ctx.restore();
   }
 
-  if (manicMode && !skipManicEpisode && screenRotation !== 0) {
+  if (
+    manicState.manicMode &&
+    !skipManicEpisode &&
+    manicState.screenRotation !== 0
+  ) {
     ctx.restore();
   }
 
   // ── Draw active arrow in clean unshaken ctx ───────────────
-  if (manicMode && activeArrowIdx >= 0 && arrowFadeAlpha > 0) {
-    let ap = ARROW_POOL[activeArrowIdx];
+  let activeArrow = manicState.getActiveArrow();
+  if (activeArrow) {
+    let ap = activeArrow.arrow;
     let adx = ap.x - P.x,
       ady = ap.y - P.y;
     let dirX2 = Math.cos(P.a),
@@ -1250,110 +914,41 @@ function render() {
       // Only draw if roughly in front (not clipped too far off-screen)
       if (screenX > -spH2 && screenX < W + spH2) {
         ctx.save();
-        ctx.globalAlpha = arrowFadeAlpha;
-        drawRoadArrow(screenX, startY2, spH2, spH2, transY, fog2, ap.dir);
+        ctx.globalAlpha = activeArrow.alpha;
+        drawRoadArrow(
+          ctx,
+          screenX,
+          startY2,
+          spH2,
+          spH2,
+          transY,
+          fog2,
+          ap.dir,
+          pulse,
+          zBuf,
+          W,
+        );
         ctx.restore();
       }
     }
   }
 
   // ===== NEW: AUTHENTIC MANIA OVERLAYS =====
-  if (manicMode && !skipManicEpisode && manicIntensity > 0) {
-    drawManicOverlays();
-  }
-}
-
-// ================================================================
-//  AUTHENTIC MANIA OVERLAYS
-// ================================================================
-function drawManicOverlays() {
-  const intensity = manicIntensity;
-
-  // ── 1. EUPHORIC EDGE SHIMMER ─────────────────────────────────
-  // Warm golden glow at screen edges — beautiful, inviting, electric
-  // This is the OPPOSITE of tunnel vision horror — it feels good
-  if (intensity > 0.15) {
-    let shimmerPulse = (Math.sin(pulse * 1.8) + 1) / 2;
-    let shimmerAlpha = intensity * 0.18 * (0.7 + shimmerPulse * 0.3);
-    let edgeGlow = ctx.createRadialGradient(
-      W / 2,
-      H / 2,
-      H * 0.3,
-      W / 2,
-      H / 2,
-      H * 0.85,
+  if (
+    manicState.manicMode &&
+    !skipManicEpisode &&
+    manicState.manicIntensity > 0
+  ) {
+    drawManicOverlays(
+      ctx,
+      W,
+      H,
+      manicState.manicIntensity,
+      pulse,
+      P,
+      MOVE_SPEED,
+      MANIC_SPEED_MULTIPLIER,
     );
-    edgeGlow.addColorStop(0, "rgba(0,0,0,0)");
-    edgeGlow.addColorStop(0.6, "rgba(0,0,0,0)");
-    edgeGlow.addColorStop(0.85, `rgba(255, 200, 50, ${shimmerAlpha * 0.4})`);
-    edgeGlow.addColorStop(1, `rgba(255, 160, 20, ${shimmerAlpha})`);
-    ctx.fillStyle = edgeGlow;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // ── 2. RACING THOUGHTS — removed (grandiosity banner handles messaging) ──
-
-  // ── 3. GRANDIOSITY OVERLAY — removed ────────────────────────
-
-  // ── 4. WORLD SATURATION BOOST (subtle chromatic richness) ────
-  // At moderate intensity: screen gets a barely-perceptible warm overlay
-  // Makes the world look more vivid, more MEANINGFUL — not distorted
-  if (intensity > 0.3) {
-    let warmAlpha = (intensity - 0.3) * 0.12;
-    ctx.fillStyle = `rgba(255, 180, 20, ${warmAlpha})`;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // ── 5. PERIPHERAL BURN ───────────────────────────────────────
-  // Always-on once manic — warm golden burn closes in from all edges.
-  // At full intensity it swallows 45% of the screen on each side.
-  if (intensity > 0.05) {
-    let spdFrac =
-      Math.abs(P.spd) > 0.5
-        ? Math.min(1, Math.abs(P.spd) / (MOVE_SPEED * MANIC_SPEED_MULTIPLIER))
-        : 0.3; // always some burn even when still
-    // Base alpha from intensity alone, boosted further by speed
-    let baseAlpha = intensity * 0.12 + spdFrac * intensity * 0.08;
-    // Slight pulse so it breathes
-    let breathe = 1 + Math.sin(pulse * 1.8) * 0.12;
-    let glowAlpha = Math.min(0.88, baseAlpha * breathe);
-
-    // How far inward the burn reaches (25% at low intensity → 45% at full)
-    let reach = 0.25 + intensity * 0.2;
-
-    ctx.save();
-
-    // Left
-    let lg = ctx.createLinearGradient(0, 0, W * reach, 0);
-    lg.addColorStop(0, `rgba(255, 160, 20, ${glowAlpha})`);
-    lg.addColorStop(0.6, `rgba(255, 140, 10, ${glowAlpha * 0.4})`);
-    lg.addColorStop(1, `rgba(255, 120,  0, 0)`);
-    ctx.fillStyle = lg;
-    ctx.fillRect(0, 0, W * reach, H);
-
-    // Right
-    let rg = ctx.createLinearGradient(W, 0, W * (1 - reach), 0);
-    rg.addColorStop(0, `rgba(255, 160, 20, ${glowAlpha})`);
-    rg.addColorStop(0.6, `rgba(255, 140, 10, ${glowAlpha * 0.4})`);
-    rg.addColorStop(1, `rgba(255, 120,  0, 0)`);
-    ctx.fillStyle = rg;
-    ctx.fillRect(W * (1 - reach), 0, W * reach, H);
-
-    // Top — narrower, horizon feels compressed
-    let tg = ctx.createLinearGradient(0, 0, 0, H * reach * 0.5);
-    tg.addColorStop(0, `rgba(255, 140, 10, ${glowAlpha * 0.7})`);
-    tg.addColorStop(1, `rgba(255, 120,  0, 0)`);
-    ctx.fillStyle = tg;
-    ctx.fillRect(0, 0, W, H * reach * 0.5);
-
-    // Bottom
-    let bg2 = ctx.createLinearGradient(0, H, 0, H * (1 - reach * 0.5));
-    bg2.addColorStop(0, `rgba(255, 140, 10, ${glowAlpha * 0.7})`);
-    bg2.addColorStop(1, `rgba(255, 120,  0, 0)`);
-    ctx.fillStyle = bg2;
-    ctx.fillRect(0, H * (1 - reach * 0.5), W, H * reach * 0.5);
-
-    ctx.restore();
   }
 }
 
@@ -1394,7 +989,7 @@ function drawTree(cx, sy, sw, sh, sd, fog) {
     [0.3, 0.64, 0.65],
   ].forEach(([yOff, wFrac, bright]) => {
     // In manic mode trees are more vivid green
-    let gBoost = manicMode ? 1 + worldBloom * 0.3 : 1;
+    let gBoost = manicState.manicMode ? 1 + manicState.worldBloom * 0.3 : 1;
     ctx.fillStyle = `rgb(${(34 * cv * bright) | 0},${Math.min(255, 132 * cv * bright * gBoost) | 0},${(50 * cv * bright) | 0})`;
     ctx.beginPath();
     ctx.moveTo(cx, sy + sh * yOff);
@@ -1547,91 +1142,6 @@ function drawMisleadingSign(cx, sy, sw, sh, sd, fog, direction, label) {
   }
 }
 
-function drawRoadArrow(cx, sy, sw, sh, sd, fog, direction) {
-  if (!colOk(cx, sd)) return;
-  if (sw < 8) return;
-  const f = fog;
-
-  // 3 glowing panels — warm gold/amber to match manic sky UI
-  // Large, bright, enticing. No shake — they feel steady and confident.
-  const numPanels = 3;
-  const panW = sw * 0.42;
-  const panH = sh * 0.7;
-  const gap = sw * 0.07;
-
-  // Slow, smooth float — serene not jittery
-  const floatOff = Math.sin(pulse * 1.6) * sh * 0.06;
-  const pulseCycle = pulse * 2.8;
-
-  // Big warm halo behind the group
-  const haloR = sw * 1.4;
-  const haloAlpha = (0.4 + (Math.sin(pulseCycle) + 1) * 0.2) * f;
-  const haloGrad = ctx.createRadialGradient(
-    cx,
-    sy + floatOff,
-    0,
-    cx,
-    sy + floatOff,
-    haloR,
-  );
-  haloGrad.addColorStop(0, `rgba(255, 200, 60, ${haloAlpha * 0.7})`);
-  haloGrad.addColorStop(0.5, `rgba(255, 150, 20, ${haloAlpha * 0.3})`);
-  haloGrad.addColorStop(1, `rgba(255, 100,  0, 0)`);
-  ctx.fillStyle = haloGrad;
-  ctx.beginPath();
-  ctx.arc(cx, sy + floatOff, haloR, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.save();
-  ctx.translate(cx, sy + sh * 0.5 + floatOff);
-  ctx.rotate(direction);
-
-  for (let i = 0; i < numPanels; i++) {
-    // Wave cascades from leading (i=0) to trailing (i=2)
-    const wave = (Math.sin(pulseCycle - i * 1.0) + 1) / 2;
-    const bright = 0.65 + wave * 0.35;
-
-    const px = (i - (numPanels - 1) / 2) * (panW + gap);
-    const py = -panH / 2;
-
-    // Panel fill — rich amber, semi-transparent
-    ctx.fillStyle = `rgba(${(255 * f) | 0}, ${(170 * f * bright) | 0}, ${(10 * f) | 0}, ${(0.55 + wave * 0.2) * f})`;
-    ctx.beginPath();
-    ctx.roundRect(px - panW / 2, py, panW, panH, 4);
-    ctx.fill();
-
-    // Glowing amber border — thick and bright
-    ctx.strokeStyle = `rgba(255, ${(220 * bright) | 0}, ${(80 * bright) | 0}, ${0.98 * f})`;
-    ctx.lineWidth = Math.max(2, sw * 0.07);
-    ctx.beginPath();
-    ctx.roundRect(px - panW / 2, py, panW, panH, 4);
-    ctx.stroke();
-
-    // Chevron "<" inside — bright white-gold
-    const chW = panW * 0.28;
-    const chH = panH * 0.38;
-    ctx.strokeStyle = `rgba(255, 255, ${(180 * bright) | 0}, ${0.95 * f})`;
-    ctx.lineWidth = Math.max(2, sw * 0.055);
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(px + chW, -chH);
-    ctx.lineTo(px - chW, 0);
-    ctx.lineTo(px + chW, chH);
-    ctx.stroke();
-
-    // Glass glint top-left
-    ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 * f * bright})`;
-    ctx.lineWidth = Math.max(0.8, sw * 0.025);
-    ctx.beginPath();
-    ctx.moveTo(px - panW / 2 + 3, py + panH * 0.18);
-    ctx.lineTo(px - panW / 2 + 3, py + 3);
-    ctx.lineTo(px + panW * 0.15, py + 3);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
 function drawCheckpointMarker(cx, sy, sw, sh, sd, fog) {
   if (!colOk(cx, sd)) return;
   let f = fog;
@@ -1948,12 +1458,14 @@ function updateHUD() {
   hudTag.style.animation = "";
 
   let spd = Math.abs(P.spd);
-  let maxSpeed = manicMode ? MOVE_SPEED * MANIC_SPEED_MULTIPLIER : MOVE_SPEED;
+  let maxSpeed = manicState.manicMode
+    ? MOVE_SPEED * MANIC_SPEED_MULTIPLIER
+    : MOVE_SPEED;
   document.getElementById("spd-bar").style.width = (spd / maxSpeed) * 100 + "%";
 
   // In manic mode: speed label is boastful
   let spdLabel = spd.toFixed(1) + " t/s  " + (P.spd >= 0 ? "▲ FWD" : "▼ REV");
-  if (manicMode && spd > MOVE_SPEED * 1.5) {
+  if (manicState.manicMode && spd > MOVE_SPEED * 1.5) {
     spdLabel += "  🔥";
   }
   document.getElementById("spd-label").textContent = spdLabel;
@@ -1965,10 +1477,10 @@ function updateHUD() {
     tripPhase === 0 ? "#ff8fab" : "#69db7c";
   document.getElementById("step-label").textContent = "DESTINATION:";
   document.getElementById("dest-label").textContent = target.label;
-  if (manicMode && manicIntensity > 0.2) {
+  if (manicState.manicMode && manicState.manicIntensity > 0.2) {
     // Distance feels closer AND fluctuates — time distortion
-    let distortion = 1 - manicIntensity * 0.45;
-    let flicker = Math.sin(pulse * 2.3) * manicIntensity * 0.2;
+    let distortion = 1 - manicState.manicIntensity * 0.45;
+    let flicker = Math.sin(pulse * 2.3) * manicState.manicIntensity * 0.2;
     let perceivedDist = d2 * (distortion + flicker);
     document.getElementById("dist-label").textContent =
       Math.max(0, perceivedDist).toFixed(1) + " units away";
@@ -2008,12 +1520,12 @@ function updateCompass() {
     dy = target.y - P.y;
   let trueAngle = Math.atan2(dy, dx);
 
-  // In manic mode: compass drifts subtly — player is overconfident, won't notice
-  // The drift feels like noise, not malice. They trust themselves over the compass.
-  let displayAngle = trueAngle + (manicMode ? compassDrift : 0);
+  // In manic mode: compass drifts subtly
+  let displayAngle =
+    trueAngle + (manicState.manicMode ? manicState.compassDrift : 0);
   let rel = displayAngle - P.a;
 
-  let ac = manicMode ? `rgb(255, 200, 50)` : "#ff8fab";
+  let ac = manicState.manicMode ? `rgb(255, 200, 50)` : "#ff8fab";
   cx2.fillStyle = ac;
   cx2.save();
   cx2.translate(cx, cy);
@@ -2094,8 +1606,8 @@ function updateMinimap() {
     mh = mmCanvas.height;
   mmCtx.clearRect(0, 0, mw, mh);
 
-  if (manicMode && manicIntensity > 0) {
-    const mi = manicIntensity;
+  if (manicState.manicMode && manicState.manicIntensity > 0) {
+    const mi = manicState.manicIntensity;
     const cx = mw / 2,
       cy = mh / 2;
 
@@ -2160,7 +1672,7 @@ function updateMinimap() {
     // Normal minimap
     mmCtx.drawImage(mmBase, 0, 0);
 
-    if (!hasPassedCheckpoint) {
+    if (!manicState.hasPassedCheckpoint) {
       let cpx = MANIC_CHECKPOINT_ZONE.x * MM_S;
       let cpy = MANIC_CHECKPOINT_ZONE.y * MM_S;
       let cpr = MANIC_CHECKPOINT_ZONE.radius * MM_S;
@@ -2213,5 +1725,40 @@ function updateMinimap() {
 }
 
 // ── Init ─────────────────────────────────────────────────────
+// Initialize canvas
+canvas = document.getElementById("c");
+ctx = canvas.getContext("2d", { alpha: false });
+
 buildMap();
 resize();
+
+// Button Handlers
+document.getElementById("btn-acknowledge").onclick = () => {
+  document.getElementById("screen-warning").style.display = "none";
+  document.getElementById("screen-intro").style.display = "flex";
+  gameState = "intro";
+};
+
+document.getElementById("btn-settings").onclick = () => {
+  document.getElementById("screen-warning").style.display = "none";
+  document.getElementById("screen-settings").style.display = "flex";
+};
+
+document.getElementById("btn-back-to-warning").onclick = () => {
+  reducedEffectsMode = document.getElementById(
+    "setting-reduced-effects",
+  ).checked;
+  skipManicEpisode = document.getElementById("setting-skip-manic").checked;
+  document.getElementById("screen-settings").style.display = "none";
+  document.getElementById("screen-warning").style.display = "flex";
+};
+
+document.getElementById("btn-start").onclick = () => {
+  resetGame();
+  showGame();
+};
+
+document.getElementById("btn-again").onclick = () => {
+  document.getElementById("screen-win").style.display = "none";
+  document.getElementById("screen-intro").style.display = "flex";
+};
