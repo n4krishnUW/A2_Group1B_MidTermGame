@@ -38,6 +38,10 @@ canvas {
   width: 90vw;
   box-shadow: 0 0 60px rgba(180, 100, 255, 0.3);
 }
+.landing-card {
+  max-width: 600px;
+  padding: 48px 40px;
+}
 h1 {
   font-size: 28px;
   color: #f064b9;
@@ -138,6 +142,16 @@ button.go:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 32px rgba(217, 70, 239, 0.65);
   background: #e879f9;
+}
+
+#btn-pause:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 20px rgba(217, 70, 239, 0.8);
+  background: rgba(232, 121, 249, 1);
+}
+
+#btn-pause:active {
+  transform: scale(0.95);
 }
 
 #hud {
