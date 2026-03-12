@@ -12,7 +12,9 @@
 
     <!-- HUD (always visible while playing) -->
     <div id="hud" style="display: none">
-      <div id="hud-tag">🌿 EUTHYMIA · BASE LEVEL</div>
+      <div id="hud-tag" style="transition: all 0.3s">
+        🌿 EUTHYMIA · BASE LEVEL
+      </div>
       <div
         style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px"
       >
@@ -42,7 +44,7 @@
     <!-- Minimap -->
     <div id="minimap-wrap" style="display: none">
       <div id="minimap-label">🗺 MAP</div>
-      <canvas id="minimap" width="120" height="120"></canvas>
+      <canvas id="minimap" width="224" height="224"></canvas>
       <div
         style="
           display: flex;
@@ -58,8 +60,152 @@
       </div>
     </div>
 
+    <!-- Accessibility Warning Modal -->
+    <div
+      class="screen"
+      id="screen-warning"
+      style="background: rgba(0, 0, 0, 0.95)"
+    >
+      <div class="card" style="max-width: 600px; border: 2px solid #ff6b6b">
+        <div style="font-size: 48px; margin-bottom: 12px">⚠️</div>
+        <h2 style="color: #ff6b6b; margin-bottom: 16px">Content Warning</h2>
+        <div style="text-align: left; margin-bottom: 20px; line-height: 1.6">
+          <p style="margin-bottom: 12px">
+            This game contains a <strong>manic episode simulation</strong> that
+            may include:
+          </p>
+          <ul style="margin-left: 20px; margin-bottom: 12px">
+            <li>Intense screen shaking and rotation</li>
+            <li>Rapid color changes and visual distortion</li>
+            <li>Tunnel vision effects (darkening edges)</li>
+            <li>Disorienting and misleading visual elements</li>
+            <li>Inverted or delayed controls</li>
+            <li>Rapidly increasing difficulty</li>
+          </ul>
+          <p style="margin-bottom: 12px">
+            <strong
+              >These effects may cause discomfort or motion sickness.</strong
+            >
+          </p>
+          <p style="color: #69db7c">
+            ✓ You can enable <strong>Reduced Effects Mode</strong> to limit
+            intensity.
+          </p>
+        </div>
+
+        <div
+          style="
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+          "
+        >
+          <button
+            class="go"
+            id="btn-settings"
+            style="background: #5865f2; flex: 1; min-width: 140px"
+          >
+            ⚙️ Settings
+          </button>
+          <button
+            class="go"
+            id="btn-acknowledge"
+            style="flex: 1; min-width: 140px"
+          >
+            I Understand
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Screen -->
+    <div class="screen" id="screen-settings" style="display: none">
+      <div class="card" style="max-width: 500px">
+        <h2 style="margin-bottom: 20px">⚙️ Settings</h2>
+
+        <div style="text-align: left; margin-bottom: 24px">
+          <div
+            style="
+              background: rgba(255, 255, 255, 0.05);
+              padding: 16px;
+              border-radius: 12px;
+              margin-bottom: 16px;
+            "
+          >
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+                user-select: none;
+              "
+            >
+              <input
+                type="checkbox"
+                id="setting-reduced-effects"
+                style="
+                  width: 20px;
+                  height: 20px;
+                  margin-right: 12px;
+                  cursor: pointer;
+                "
+              />
+              <div>
+                <div style="font-weight: bold; margin-bottom: 4px">
+                  🌿 Reduced Effects Mode
+                </div>
+                <div style="font-size: 12px; color: rgba(255, 255, 255, 0.7)">
+                  Limits manic episode intensity to 50% (less shake, slower
+                  color changes, gentler effects)
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <div
+            style="
+              background: rgba(255, 255, 255, 0.05);
+              padding: 16px;
+              border-radius: 12px;
+            "
+          >
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+                user-select: none;
+              "
+            >
+              <input
+                type="checkbox"
+                id="setting-skip-manic"
+                style="
+                  width: 20px;
+                  height: 20px;
+                  margin-right: 12px;
+                  cursor: pointer;
+                "
+              />
+              <div>
+                <div style="font-weight: bold; margin-bottom: 4px">
+                  ⏭️ Skip Manic Episode
+                </div>
+                <div style="font-size: 12px; color: rgba(255, 255, 255, 0.7)">
+                  Play the game without the manic episode segment
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <button class="go" id="btn-back-to-warning">← Back</button>
+      </div>
+    </div>
+
     <!-- Intro screen -->
-    <div class="screen" id="screen-intro">
+    <div class="screen" id="screen-intro" style="display: none">
       <div class="card">
         <canvas
           id="road-preview"
@@ -83,7 +229,8 @@
           </div>
           <div class="arrow">→</div>
           <div class="chip" style="border-color: #ff8fab; color: #ff8fab">
-            GOAL<span class="emoji">🏥</span><span class="lbl">Hospital</span>
+            GOAL<span class="emoji">🌳</span
+            ><span class="lbl">Recreation Centre</span>
           </div>
         </div>
 
@@ -116,7 +263,7 @@
       <div class="card win-card">
         <div style="font-size: 60px; margin-bottom: 8px">🎉</div>
         <h2>Route Complete!</h2>
-        <div style="font-size: 28px; margin: 12px 0">🏫 → 🏥 → 🏫</div>
+        <div style="font-size: 28px; margin: 12px 0">🏫 → 🌳 → 🏫</div>
         <div style="color: #b0d8b0; font-size: 13px; margin-bottom: 20px">
           Round trip finished! Great driving 🌟
         </div>
@@ -133,6 +280,6 @@
       </div>
     </div>
 
-    <script src="sketch.js"></script>
+    <script type="module" src="sketch.js"></script>
   </body>
 </html>

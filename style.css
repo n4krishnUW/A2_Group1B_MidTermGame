@@ -254,3 +254,13 @@ button.go:hover {
   color: #69db7c;
   text-shadow: 0 0 20px rgba(100, 255, 100, 0.55);
 }
+/* Pulse animation for manic mode */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
