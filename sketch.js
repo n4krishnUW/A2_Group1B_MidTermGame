@@ -433,11 +433,18 @@ function buildScene() {
 }
 
 // ── Game state ───────────────────────────────────────────────
-let gameState = "warning";
+let gameState = "landing";
 let tripPhase = 0; // 0=going to Recreation Centre, 1=returning to start
 let pulse = 0;
 const KEYS = {};
 let initialDistanceToGoal = 0;
+let isPaused = false;
+
+// ── Audio ────────────────────────────────────────────────────
+const backgroundAudio = document.getElementById("background-audio");
+backgroundAudio.volume = 0.5;
+const winAudio = document.getElementById("win-audio");
+winAudio.volume = 0.6;
 
 // ── Accessibility Settings ───────────────────────────────────
 let reducedEffectsMode = false;
@@ -589,15 +596,19 @@ function resetGame() {
   };
 
   buildScene();
+  resetFog();
 }
 
 // ── Input ────────────────────────────────────────────────────
 document.addEventListener("keydown", (e) => {
   KEYS[e.code] = true;
-  if (
-    ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(
-      e.code,
-    )
+
+  // Pause on Space key
+  if (e.code === "Space" && gameState === "playing") {
+    e.preventDefault();
+    togglePause();
+  } else if (
+    ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)
   )
     e.preventDefault();
 });
@@ -608,10 +619,31 @@ document.addEventListener("keyup", (e) => {
 function showGame() {
   document.getElementById("screen-intro").style.display = "none";
   document.getElementById("screen-win").style.display = "none";
+  document.getElementById("screen-pause").style.display = "none";
   document.getElementById("hud").style.display = "block";
   document.getElementById("compass").style.display = "block";
   document.getElementById("minimap-wrap").style.display = "block";
+  document.getElementById("btn-pause").style.display = "block";
+  isPaused = false;
   gameState = "playing";
+  backgroundAudio.play();
+}
+
+function togglePause() {
+  isPaused = !isPaused;
+  if (isPaused) {
+    document.getElementById("screen-pause").style.display = "flex";
+    backgroundAudio.pause();
+  } else {
+    document.getElementById("screen-pause").style.display = "none";
+    backgroundAudio.play();
+  }
+}
+
+function resumeGame() {
+  isPaused = false;
+  document.getElementById("screen-pause").style.display = "none";
+  backgroundAudio.play();
 }
 function showWin() {
   if (manicState.manicMode) {
@@ -627,7 +659,13 @@ function showWin() {
   document.getElementById("hud").style.display = "none";
   document.getElementById("compass").style.display = "none";
   document.getElementById("minimap-wrap").style.display = "none";
+  document.getElementById("btn-pause").style.display = "none";
+  document.getElementById("screen-pause").style.display = "none";
   document.getElementById("screen-win").style.display = "flex";
+  backgroundAudio.pause();
+  backgroundAudio.currentTime = 0;
+  winAudio.currentTime = 0;
+  winAudio.play();
   gameState = "win";
 }
 
@@ -675,6 +713,13 @@ function loop(t) {
   let dt = Math.min((t - lastT) / 1000, 0.05);
   lastT = t;
   if (gameState !== "playing") return;
+
+  // Skip game updates when paused, but still render
+  if (isPaused) {
+    render();
+    return;
+  }
+
   pulse += dt;
 
   // Update manic state using module
@@ -701,6 +746,15 @@ function loop(t) {
 
   depressionState.update(dt, pulse, reducedEffectsMode);
   updateStateNotifications(dt);
+
+  // Update audio playback speed based on game state
+  if (manicState.manicMode) {
+    backgroundAudio.playbackRate = 2.0; // 2x speed during manic
+  } else if (depressionState.depressionMode) {
+    backgroundAudio.playbackRate = 0.5; // 0.5x speed during depression
+  } else {
+    backgroundAudio.playbackRate = 1.0; // Normal speed
+  }
 
   update(dt);
   render();
@@ -888,7 +942,7 @@ function update(dt) {
 function render() {
   const W2 = W, // Canvas width
     H2 = H; // Canvas height
-  const hor = H2 >> 1; // Horizon line (halfway up screen)
+  const hor = (H2 >> 1) + 1; // +1 ensures wall bottom (hor) and floor start (hor+1) leave no gap
   const buf = buf32; // 32-bit pixel buffer for fast writing
   const zb = zBuf; // Z-buffer for depth sorting
 
@@ -896,7 +950,7 @@ function render() {
   // SKY RENDERING — Gradient from top to horizon
   // Mood states affect sky color (manic = warmer, depression = cooler)
   // ═══════════════════════════════════════════════════════════════
-  for (let y = 0; y < hor; y++) {
+  for (let y = 0; y <= hor; y++) {
     let t = y / hor; // 0=top, 1=horizon (interpolation value)
 
     // Base gradient: cool blue transitioning to lighter at horizon
@@ -969,9 +1023,9 @@ function render() {
       }
     }
 
-  for (let y = hor; y < H2; y++) {
+  for (let y = hor + 1; y < H2; y++) {
     const p = y - hor;
-    const rowDist = (0.5 * H2) / Math.max(1, p);
+    const rowDist = (0.5 * H2) / p;
     const fog = Math.max(0.06, 1 - rowDist / MAX_D);
     const stepX = (rowDist * (rayRx - rayLx)) / W2;
     const stepY = (rowDist * (rayRy - rayLy)) / W2;
@@ -1118,8 +1172,8 @@ function render() {
 
     wallH = (wallH * heightMultiplier) | 0;
     wallH = depressionState.applyProjectionStretch(col, W2, wallH) | 0;
-    let top = Math.max(0, (hor - wallH / 2) | 0);
-    let bot = Math.min(hor, (hor + wallH / 2) | 0); // Clamp to horizon line to prevent gap
+    let bot = hor; // Wall bottom pinned to horizon (ground level)
+    let top = Math.max(0, (hor - wallH) | 0); // Wall rises upward from the horizon
     let fog = Math.max(0.06, 1 - pd / MAX_D);
     let dim = ns ? 0.62 : 1.0;
     let f = fog * dim;
@@ -3180,6 +3234,35 @@ mmCanvas.height = ROWS * MM_S;
 let mmCtx = mmCanvas.getContext("2d");
 let mmBase = null;
 
+// ── Fog of war ───────────────────────────────────────────────
+// fogCanvas is drawn ON TOP of the minimap; explored pixels are cleared to transparent
+let fogCanvas = document.createElement("canvas");
+fogCanvas.width = COLS * MM_S;
+fogCanvas.height = ROWS * MM_S;
+let fogCtx = fogCanvas.getContext("2d");
+// Start fully black
+fogCtx.fillStyle = "#000";
+fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+
+function revealFogAt(wx, wy) {
+  // Clear a circular area on the fog canvas at world position (wx, wy)
+  const radius = 5 * MM_S; // reveal radius in minimap pixels
+  const cx = wx * MM_S;
+  const cy = wy * MM_S;
+  fogCtx.save();
+  fogCtx.globalCompositeOperation = "destination-out";
+  fogCtx.beginPath();
+  fogCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+  fogCtx.fill();
+  fogCtx.restore();
+}
+
+function resetFog() {
+  fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+  fogCtx.fillStyle = "#000";
+  fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+}
+
 function buildMinimapBase() {
   let offscreen = document.createElement("canvas");
   offscreen.width = COLS * MM_S;
@@ -3239,6 +3322,9 @@ function updateMinimap() {
     mh = mmCanvas.height;
   mmCtx.clearRect(0, 0, mw, mh);
 
+  // Reveal fog around current player position every frame
+  revealFogAt(P.x, P.y);
+
   if (manicState.manicMode && manicState.manicIntensity > 0) {
     const mi = manicState.manicIntensity;
     const cx = mw / 2,
@@ -3256,6 +3342,7 @@ function updateMinimap() {
     mmCtx.globalAlpha = mapAlpha;
     mmCtx.drawImage(mmBase, -cx, -cy);
     mmCtx.globalAlpha = 1;
+    mmCtx.drawImage(fogCanvas, -cx, -cy);
     mmCtx.restore();
 
     // Overlay static noise at high intensity — map becomes unreliable
@@ -3301,6 +3388,8 @@ function updateMinimap() {
   } else {
     // Normal minimap
     mmCtx.drawImage(mmBase, 0, 0);
+    // Draw fog on top — black everywhere except explored areas
+    mmCtx.drawImage(fogCanvas, 0, 0);
 
     // Manic checkpoint marker removed — only show points A and B on minimap
 
@@ -3344,24 +3433,45 @@ buildMap();
 resize();
 
 // Button Handlers
+
+// Landing page → Warning or Settings
+document.getElementById("btn-start-driving").onclick = () => {
+  document.getElementById("screen-landing").style.display = "none";
+  document.getElementById("screen-warning").style.display = "flex";
+  gameState = "warning";
+};
+
+document.getElementById("btn-landing-settings").onclick = () => {
+  document.getElementById("screen-landing").style.display = "none";
+  document.getElementById("screen-settings").style.display = "flex";
+};
+
+// Warning page → Game or Settings
 document.getElementById("btn-acknowledge").onclick = () => {
   document.getElementById("screen-warning").style.display = "none";
   document.getElementById("screen-intro").style.display = "flex";
   gameState = "intro";
 };
 
-document.getElementById("btn-settings").onclick = () => {
+document.getElementById("btn-warning-settings").onclick = () => {
   document.getElementById("screen-warning").style.display = "none";
   document.getElementById("screen-settings").style.display = "flex";
 };
 
-document.getElementById("btn-back-to-warning").onclick = () => {
+// Settings → back to landing or warning
+document.getElementById("btn-back-from-settings").onclick = () => {
   reducedEffectsMode = document.getElementById(
     "setting-reduced-effects",
   ).checked;
   skipManicEpisode = document.getElementById("setting-skip-manic").checked;
   document.getElementById("screen-settings").style.display = "none";
-  document.getElementById("screen-warning").style.display = "flex";
+
+  // Determine if we came from landing or warning
+  if (gameState === "warning") {
+    document.getElementById("screen-warning").style.display = "flex";
+  } else {
+    document.getElementById("screen-landing").style.display = "flex";
+  }
 };
 
 document.getElementById("btn-start").onclick = () => {
@@ -3371,5 +3481,37 @@ document.getElementById("btn-start").onclick = () => {
 
 document.getElementById("btn-again").onclick = () => {
   document.getElementById("screen-win").style.display = "none";
-  document.getElementById("screen-intro").style.display = "flex";
+  document.getElementById("screen-landing").style.display = "flex";
+  winAudio.pause();
+  winAudio.currentTime = 0;
+  gameState = "landing";
+};
+
+// Pause button handlers
+document.getElementById("btn-pause").onclick = () => {
+  togglePause();
+};
+
+document.getElementById("btn-pause-resume").onclick = () => {
+  resumeGame();
+};
+
+document.getElementById("btn-pause-restart").onclick = () => {
+  isPaused = false;
+  document.getElementById("screen-pause").style.display = "none";
+  resetGame();
+  showGame();
+};
+
+document.getElementById("btn-pause-menu").onclick = () => {
+  isPaused = false;
+  document.getElementById("screen-pause").style.display = "none";
+  document.getElementById("btn-pause").style.display = "none";
+  document.getElementById("hud").style.display = "none";
+  document.getElementById("compass").style.display = "none";
+  document.getElementById("minimap-wrap").style.display = "none";
+  document.getElementById("screen-landing").style.display = "flex";
+  backgroundAudio.pause();
+  backgroundAudio.currentTime = 0;
+  gameState = "landing";
 };

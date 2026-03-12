@@ -3,10 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Crossy Mind</title>
+    <title>A Mind in Motion</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- Background Audio -->
+    <audio id="background-audio" loop style="display: none">
+      <source src="audio/backgroundaudio.mp3" type="audio/mpeg" />
+    </audio>
+
+    <!-- Win Audio -->
+    <audio id="win-audio" style="display: none">
+      <source src="audio/winaudio.mp3" type="audio/mpeg" />
+    </audio>
+
     <!-- 3D world canvas -->
     <canvas id="c"></canvas>
 
@@ -60,11 +70,109 @@
       </div>
     </div>
 
+    <!-- Pause Button -->
+    <button
+      id="btn-pause"
+      style="
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        background: rgba(217, 70, 239, 0.9);
+        border: 2px solid #d946ef;
+        color: #fff;
+        border-radius: 50%;
+        width: 48px;
+        height: 48px;
+        font-size: 20px;
+        cursor: pointer;
+        display: none;
+        z-index: 100;
+        backdrop-filter: blur(4px);
+        transition: all 0.2s;
+        font-weight: bold;
+      "
+      title="Pause (Space)"
+    >
+      ⏸
+    </button>
+
+    <!-- Pause Screen -->
+    <div
+      class="screen"
+      id="screen-pause"
+      style="background: rgba(0, 0, 0, 0.92); display: none; z-index: 1000"
+    >
+      <div class="card" style="max-width: 500px">
+        <div style="font-size: 48px; margin-bottom: 16px">⏸️</div>
+        <h2 style="margin-bottom: 32px">Game Paused</h2>
+
+        <div style="display: flex; gap: 12px; flex-direction: column">
+          <button
+            class="go"
+            id="btn-pause-resume"
+            style="background: #22c55e; width: 100%"
+          >
+            ▶️ Resume (Space)
+          </button>
+          <button
+            class="go"
+            id="btn-pause-restart"
+            style="background: #3b82f6; width: 100%"
+          >
+            🔄 Restart
+          </button>
+          <button
+            class="go"
+            id="btn-pause-menu"
+            style="background: #5865f2; width: 100%"
+          >
+            🏠 Main Menu
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Landing Screen -->
+    <div
+      class="screen"
+      id="screen-landing"
+      style="background: rgba(0, 0, 0, 0.95); display: flex"
+    >
+      <div class="card landing-card">
+        <div style="font-size: 64px; margin-bottom: 24px">🧠</div>
+        <h1 style="font-size: 48px; margin-bottom: 32px">A Mind in Motion</h1>
+
+        <div
+          style="
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+          "
+        >
+          <button
+            class="go"
+            id="btn-landing-settings"
+            style="background: #5865f2; flex: 1; min-width: 140px"
+          >
+            ⚙️ Settings
+          </button>
+          <button
+            class="go"
+            id="btn-start-driving"
+            style="flex: 1; min-width: 140px"
+          >
+            Start Driving 🚗
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Accessibility Warning Modal -->
     <div
       class="screen"
       id="screen-warning"
-      style="background: rgba(0, 0, 0, 0.95)"
+      style="background: rgba(0, 0, 0, 0.95); display: none"
     >
       <div class="card" style="max-width: 600px; border: 2px solid #ff6b6b">
         <div style="font-size: 48px; margin-bottom: 12px">⚠️</div>
@@ -103,7 +211,7 @@
         >
           <button
             class="go"
-            id="btn-settings"
+            id="btn-warning-settings"
             style="background: #5865f2; flex: 1; min-width: 140px"
           >
             ⚙️ Settings
@@ -200,7 +308,7 @@
           </div>
         </div>
 
-        <button class="go" id="btn-back-to-warning">← Back</button>
+        <button class="go" id="btn-back-from-settings">← Back</button>
       </div>
     </div>
 
@@ -219,7 +327,7 @@
           "
         ></canvas>
 
-        <h1 style="margin-top: 18px">Crossy Mind</h1>
+        <h1 style="margin-top: 18px">A Mind in Motion</h1>
         <div class="sub">☁ EUTHYMIA · FIRST PERSON ☁</div>
 
         <div class="goal-row">
