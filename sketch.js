@@ -1101,19 +1101,25 @@ function render() {
 
     // ── BUILDING HEIGHT VARIATION ──────────────────────────────
     // Apply height multipliers for different building types
-    let heightMultiplier = 1.0;
+    // Use tile position to create deterministic per-building variation
+    let seed = (mc * 73 + mr * 97) >>> 0; // Deterministic seed from position
+    let heightVar = 0.85 + (seed % 30) / 100; // Varies 0.85 to 1.85
+
+    let baseMultiplier = 1.5;
     if (tt === 3)
-      heightMultiplier = 1.3; // Community centre - tall
+      baseMultiplier = 1.7; // Community centre - tall
     else if (tt === 4)
-      heightMultiplier = 1.25; // Grocery store
+      baseMultiplier = 1.8; // Grocery store
     else if (tt === 5)
-      heightMultiplier = 1.2; // Library
-    else if (tt === 6) heightMultiplier = 1.3; // Park - tall
+      baseMultiplier = 1.2; // Library
+    else if (tt === 6) baseMultiplier = 1.3; // Park - tall
+
+    let heightMultiplier = baseMultiplier * heightVar;
 
     wallH = (wallH * heightMultiplier) | 0;
     wallH = depressionState.applyProjectionStretch(col, W2, wallH) | 0;
     let top = Math.max(0, (hor - wallH / 2) | 0);
-    let bot = Math.min(H2 - 1, (hor + wallH / 2) | 0);
+    let bot = Math.min(hor, (hor + wallH / 2) | 0); // Clamp to horizon line to prevent gap
     let fog = Math.max(0.06, 1 - pd / MAX_D);
     let dim = ns ? 0.62 : 1.0;
     let f = fog * dim;
